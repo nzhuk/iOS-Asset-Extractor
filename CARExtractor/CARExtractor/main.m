@@ -26,6 +26,8 @@
 @interface CUINamedImage : NSObject
 
 -(CGImageRef)image;
+-(double)scale;
+-(CGSize)size;
 
 @end
 
@@ -43,6 +45,7 @@
 
 -(id)initWithName:(NSString *)n fromBundle:(NSBundle *)b;
 -(id)allKeys;
+-(id)imagesWithName:(NSString *)imageName;
 -(CUINamedImage *)imageWithName:(NSString *)n scaleFactor:(CGFloat)s;
 -(CUINamedImage *)imageWithName:(NSString *)n scaleFactor:(CGFloat)s deviceIdiom:(int)idiom;
 
@@ -71,6 +74,29 @@ void CGImageWriteToFile(CGImageRef image, NSString *path)
 
 #pragma mark Export CAR
 
+/**
+ For some reason, when -[CUICatalog imageWithName:scaleFactor:deviceIdiom:] is called with scaleFactor of 3.0 and iPhone idiom, it returns image with scale factor of 2.0 even through asset catalog contains image with scaleFactor of 3.0.
+ Looping through all images in the catalog manually allows us to find the correct image with correct scale.
+ 
+This loop doesn't check for device idiom and it has been only tested with assets for iPhone. It should be extended to work with other device idioms in the future.
+ */
+CUINamedImage* extractImageFromCatalog(NSString *name, CGFloat scaleFactor, int deviceIdiom, CUICatalog *catalog)
+{
+    NSArray *images = [catalog imagesWithName:name];
+    for (CUINamedImage *image in images)
+    {
+        if(deviceIdiom == kCoreThemeIdiomPhone &&
+           !CGSizeEqualToSize(image.size, CGSizeZero) &&
+           (fabs([image scale] - scaleFactor) < 0.001))
+        {
+            return image;
+        }
+    }
+    
+    // Fallback to default functionality
+    return [catalog imageWithName:name scaleFactor:scaleFactor deviceIdiom:deviceIdiom];
+}
+
 void exportCarFileAtPath(NSString * carPath, NSString *outputDirectoryPath)
 {
     NSError *error = nil;
@@ -86,11 +112,11 @@ void exportCarFileAtPath(NSString * carPath, NSString *outputDirectoryPath)
     {
         NSLog(@"    Writing Image: %@", key);
         
-        CGImageRef iphone1X = [[catalog imageWithName:key scaleFactor:1.0 deviceIdiom:kCoreThemeIdiomPhone] image];
-        CGImageRef iphone2X = [[catalog imageWithName:key scaleFactor:2.0 deviceIdiom:kCoreThemeIdiomPhone] image];
-        CGImageRef iphone3X = [[catalog imageWithName:key scaleFactor:3.0 deviceIdiom:kCoreThemeIdiomPhone] image];
-        CGImageRef ipad1X = [[catalog imageWithName:key scaleFactor:1.0 deviceIdiom:kCoreThemeIdiomPad] image];
-        CGImageRef ipad2X = [[catalog imageWithName:key scaleFactor:2.0 deviceIdiom:kCoreThemeIdiomPad] image];
+        CGImageRef iphone1X = [extractImageFromCatalog(key, 1.0, kCoreThemeIdiomPhone, catalog) image];
+        CGImageRef iphone2X = [extractImageFromCatalog(key, 2.0, kCoreThemeIdiomPhone, catalog) image];
+        CGImageRef iphone3X = [extractImageFromCatalog(key, 3.0, kCoreThemeIdiomPhone, catalog) image];
+        CGImageRef ipad1X = [extractImageFromCatalog(key, 1.0, kCoreThemeIdiomPad, catalog) image];
+        CGImageRef ipad2X = [extractImageFromCatalog(key, 2.0, kCoreThemeIdiomPad, catalog) image];
         
         if (iphone1X)
             CGImageWriteToFile(iphone1X, [outputDirectoryPath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@~iphone.png", key]]);
